@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>ДЕД</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#000; font-family:monospace; }
+  #game { position:relative; width:100vw; height:100vh; background:#0a0a0a; overflow:hidden; }
+
+  /* Комнаты-коридоры (вид сверху) */
+  .room { position:absolute; border:2px solid #333; background:#111; }
+  .wall { position:absolute; background:#1a1a1a; border:1px solid #333; }
+
+  /* Игрок */
+  #player {
+    position:absolute; width:34px; height:34px; border-radius:50%;
+    background:radial-gradient(circle,#6cf,#08a);
+    box-shadow:0 0 18px #4af; z-index:5;
+    transition:transform .05s;
+  }
+
+  /* Дед */
+  #ded {
+    position:absolute; width:44px; height:44px; border-radius:6px;
+    background:radial-gradient(circle,#a00,#300);
+    box-shadow:0 0 25px #f00; z-index:4;
+  }
+  #ded::after {
+    content:"👴"; position:absolute; font-size:30px;
+    left:50%; top:50%; transform:translate(-50%,-50%);
+  }
+
+  /* Двери/головоломки */
+  .door {
+    position:absolute; background:#553; border:2px solid #aa8;
+    z-index:3; display:flex; align-items:center; justify-content:center;
+    color:#ff8; font-size:11px; text-align:center; padding:2px;
+  }
+  .door.locked { background:#400; border-color:#a33; color:#f88; }
+  .door.open { background:#040; border-color:#0a0; }
+
+  /* Ключ */
+  .key {
+    position:absolute; width:22px; height:22px; background:gold;
+    border-radius:50%; box-shadow:0 0 15px gold; z-index:3;
+    animation:pulse 1s infinite alternate;
+  }
+  @keyframes pulse { from{transform:scale(1);} to{transform:scale(1.25);} }
+
+  /* UI */
+  #hud {
+    position:absolute; top:8px; left:8px; color:#fff; font-size:13px;
+    z-index:20; text-shadow:0 0 4px #000; line-height:1.5;
+  }
+  #hud span { color:#f88; }
+
+  /* Джойстик */
+  #joy {
+    position:absolute; bottom:20px; left:20px; width:130px; height:130px;
+    border-radius:50%; background:rgba(255,255,255,.06); border:2px solid rgba(255,255,255,.15);
+    z-index:30; touch-action:none;
+  }
+  #knob {
+    position:absolute; width:60px; height:60px; border-radius:50%;
+    background:rgba(120,200,255,.5); left:35px; top:35px;
+    border:2px solid #6cf;
+  }
+
+  /* Сообщения и экраны */
+  #msg {
+    position:absolute; bottom:170px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,.8); color:#ff8; padding:8px 14px; border-radius:8px;
+    font-size:13px; z-index:25; display:none; max-width:80%; text-align:center;
+  }
+
+  .screen {
+    position:absolute; inset:0; background:rgba(0,0,0,.92); z-index:50;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:#eee; text-align:center; padding:20px;
+  }
+  .screen h1 { font-size:28px; color:#f33; margin-bottom:16px; letter-spacing:3px; }
+  .screen p { font-size:14px; margin-bottom:10px; color:#bbb; line-height:1.6; }
+  .btn {
+    margin-top:16px; padding:12px 28px; background:#400; color:#ff8;
+    border:2px solid #a33; border-radius:8px; font-size:16px; font-family:monospace;
+  }
+  .hidden { display:none !important; }
+
+  #flash { position:absolute; inset:0; background:#f00; opacity:0; z-index:40; pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="game">
+  <div id="hud">🎒 Ключи: <span id="keys">0</span>/3<br>💀 Дед: <span id="dist">—</span></div>
+
+  <div id="player"></div>
+  <div id="ded" class="hidden"></div>
+
+  <div id="joy"><div id="knob"></div></div>
+  <div id="msg"></div>
+  <div id="flash"></div>
+
+  <!-- Стартовый экран -->
+  <div id="startScreen" class="screen">
+    <h1>ДЕД</h1>
+    <p>Ты заперт в старом доме. В темноте бродит ОН.</p>
+    <p>Собери <b>3 ключа</b>, чтобы открыть выходную дверь.</p>
+    <p>Дед охотится на звук и свет. Прячься, решай головоломки, беги.</p>
+    <p style="color:#f33">Если он тебя поймает — конец.</p>
+    <button class="btn" id="startBtn">НАЧАТЬ</button>
+  </div>
+
+  <!-- Экран головоломки -->
+  <div id="puzzleScreen" class="screen hidden">
+    <h1 id="puzzleTitle">ЗАМОК</h1>
+    <p id="puzzleText"></p>
+    <input id="puzzleInput" style="padding:10px;font-size:18px;width:150px;text-align:center;background:#111;color:#ff8;border:2px solid #a33;border-radius:6px;">
+    <button class="btn" id="puzzleBtn">ОТКРЫТЬ</button>
+    <button class="btn" id="puzzleClose" style="background:#222;border-color:#555;color:#888">УЙТИ</button>
+  </div>
+
+  <!-- Экран смерти -->
+  <div id="deadScreen" class="screen hidden">
+    <h1>ОН НАШЁЛ ТЕБЯ</h1>
+    <p id="deadReason"></p>
+    <button class="btn" id="retryBtn">ПОПРОБОВАТЬ СНОВА</button>
+  </div>
+
+  <!-- Экран победы -->
+  <div id="winScreen" class="screen hidden">
+    <h1 style="color:#4f4">ТЫ ВЫБРАЛСЯ</h1>
+    <p>Дверь захлопнулась за спиной. Дед остался внутри.</p>
+    <p style="color:#f88">...но ты слышишь его шаги за дверью.</p>
+    <button class="btn" id="winBtn">ИГРАТЬ СНОВА</button>
+  </div>
+</div>
+
+<script>
+// ===== КОНФИГ =====
+const W = window.innerWidth, H = window.innerHeight;
+const game = document.getElementById('game');
+const playerEl = document.getElementById('player');
+const dedEl = document.getElementById('ded');
+const joy = document.getElementById('joy');
+const knob = document.getElementById('knob');
+const msgEl = document.getElementById('msg');
+
+const PLAYER_SIZE = 34, DED_SIZE = 44;
+const PLAYER_SPEED = 2.6, DED_SPEED = 2.05;
+
+// ===== СОСТОЯНИЕ =====
+let state = {
+  running:false, over:false, won:false,
+  keys:0, totalKeys:3,
+  player:{x:60,y:60},
+  ded:{x:W-100,y:H-150, active:false, stunTimer:0},
+  doors:[], keysArr:[], walls:[],
+  joyVec:{x:0,y:0},
+  dedSpeed:DED_SPEED,
+  lastSeen:0,
+  noise:0 // уровень шума (движение)
+};
+
+// ===== УРОВЕНЬ (коридоры дома) =====
+// Стены-коридоры. Игрок и дед ходят между ними.
+function buildLevel(){
+  state.walls = [
+    // Внешние стены
+    {x:0,y:0,w:W,h:14},
+    {x:0,y:H-14,w:W,h:14},
+    {x:0,y:0,w:14,h:H},
+    {x:W-14,y:0,w:14,h:H},
+    // Внутренние перегородки
+    {x:W*0.3,y:14,w:14,h:H*0.35},
+    {x:W*0.3,y:H*0.5,w:14,h:H*0.5-14},
+    {x:W*0.6,y:14,w:14,h:H*0.45},
+    {x:W*0.6,y:H*0.6,w:14,h:H*0.4-14},
+    {x:14,y:H*0.35,w:W*0.28,h:14},
+    {x:W*0.62,y:H*0.5,w:W*0.38-14,h:14},
+  ];
+
+  state.doors = [
+    {x:W*0.3-6,y:H*0.2,w:26,h:70, locked:true, keyNeeded:1, code:'7', hint:'Сколько окон в комнате? 3... нет, посмотри на стены: их 4, минус 1 = ?', open:false},
+    {x:W*0.6-6,y:H*0.75,w:26,h:70, locked:true, keyNeeded:2, code:'13', hint:'Который час на сломанных часах: 1 и 3?', open:false},
+    {x:W-70,y:H*0.45,w:60,h:14, locked:true, keyNeeded:3, code:'666', hint:'Число зверя... но добрый дед прощает: введи 666', open:false}
+  ];
+
+  state.keysArr = [
+    {x:W*0.15,y:H*0.75,taken:false},
+    {x:W*0.75,y:H*0.2,taken:false},
+    {x:W*0.85,y:H*0.85,taken:false}
+  ];
+}
+
+// ===== РЕНДЕР СТАТИЧНЫХ ОБЪЕКТОВ =====
+function renderStatic(){
+  // стены
+  state.walls.forEach(w=>{
+    const d = document.createElement('div');
+    d.className='wall';
+    d.style.left=w.x+'px'; d.style.top=w.y+'px';
+    d.style.width=w.w+'px'; d.style.height=w.h+'px';
+    game.appendChild(d);
+  });
+  // двери
+  state.doors.forEach((door,i)=>{
+    const d = document.createElement('div');
+    d.className='door locked';
+    d.id='door'+i;
+    d.style.left=door.x+'px'; d.style.top=door.y+'px';
+    d.style.width=door.w+'px'; d.style.height=door.h+'px';
+    d.textContent = door.locked ? '🔒' : '🚪';
+    game.appendChild(d);
+  });
+  // ключи
+  state.keysArr.forEach((k,i)=>{
+    const d = document.createElement('div');
+    d.className='key';
+    d.id='key'+i;
+    d.style.left=k.x+'px'; d.style.top=k.y+'px';
+    if(k.taken) d.style.display='none';
+    game.appendChild(d);
+  });
+}
+
+// ===== УПРАВЛЕНИЕ (ДЖОЙСТИК) =====
+let joyActive=false, joyStart={x:0,y:0};
+joy.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  joyActive=true;
+  const t=e.touches[0];
+  const r=joy.getBoundingClientRect();
+  joyStart.x=r.left+r.width/2; joyStart.y=r.top+r.height/2;
+  moveKnob(t.clientX,t.clientY);
+},{passive:false});
+
+joy.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  if(!joyActive) return;
+  const t=e.touches[0];
+  moveKnob(t.clientX,t.clientY);
+},{passive:false});
+
+joy.addEventListener('touchend',e=>{
+  e.preventDefault();
+  joyActive=false;
+  knob.style.left='35px'; knob.style.top='35px';
+  state.joyVec.x=0; state.joyVec.y=0;
+},{passive:false});
+
+function moveKnob(cx,cy){
+  const r=joy.getBoundingClientRect();
+  const cx0=r.left+r.width/2, cy0=r.top+r.height/2;
+  let dx=cx-cx0, dy=cy-cy0;
+  const dist=Math.hypot(dx,dy), max=r.width/2-30;
+  if(dist>max){ dx=dx/dist*max; dy=dy/dist*max; }
+  knob.style.left=(35+dx)+'px';
+  knob.style.top=(35+dy)+'px';
+  state.joyVec.x = dx/max;
+  state.joyVec.y = dy/max;
+}
+
+// ===== КОЛЛИЗИИ =====
+function collides(x,y,size){
+  for(const w of state.walls){
+    if(x < w.x+w.w && x+size > w.x && y < w.y+w.h && y+size > w.y) return true;
+  }
+  return false;
+}
+
+function doorBlocks(x,y,size){
+  for(const d of state.doors){
+    if(d.locked && !d.open){
+      if(x < d.x+d.w && x+size > d.x && y < d.y+d.h && y+size > d.y) return true;
+    }
+  }
+  return false;
+}
+
+// ===== ДВИЖЕНИЕ ИГРОКА =====
+function movePlayer(dt){
+  const nx = state.player.x + state.joyVec.x * PLAYER_SPEED * dt*60;
+  const ny = state.player.y + state.joyVec.y * PLAYER_SPEED * dt*60;
+
+  // движение по X
+  if(!collides(nx, state.player.y, PLAYER_SIZE) && !doorBlocks(nx, state.player.y, PLAYER_SIZE))
+    state.player.x = nx;
+  // движение по Y
+  if(!collides(state.player.x, ny, PLAYER_SIZE) && !doorBlocks(state.player.x, ny, PLAYER_SIZE))
+    state.player.y = ny;
+
+  // шум от движения
+  const speed = Math.hypot(state.joyVec.x, state.joyVec.y);
+  state.noise = speed > 0.15 ? 1 : 0;
+}
+
+// ===== ИИ ДЕДА =====
+function moveDed(dt){
+  if(state.ded.stunTimer > 0){ state.ded.stunTimer -= dt; return; }
+
+  const dx = state.player.x - state.ded.x;
+  const dy = state.player.y - state.ded.y;
+  const dist = Math.hypot(dx,dy);
+
+  // Дед слышит игрока: если игрок двигается или близко — идёт прямо
+  let targetX = state.player.x, targetY = state.player.y;
+
+  // Если игрок далеко и стоит тихо — дед патрулирует (случайная точка)
+  if(dist > 220 && !state.noise){
+    if(!state.ded.patrol || Math.hypot(state.ded.patrol.x-state.ded.x, state.ded.patrol.y-state.ded.y)<40){
+      state.ded.patrol = { x: 40+Math.random()*(W-100), y: 40+Math.random()*(H-100) };
+    }
+    targetX = state.ded.patrol.x;
+    targetY = state.ded.patrol.y;
+  }
+
+  const tdx = targetX - state.ded.x;
+  const tdy = targetY - state.ded.y;
+  const tdist = Math.hypot(tdx,tdy) || 1;
+
+  const step = state.dedSpeed * dt*60;
+  const nx = state.ded.x + (tdx/tdist)*step;
+  const ny = state.ded.y + (tdy/tdist)*step;
+
+  if(!collides(nx, state.ded.y, DED_SIZE)) state.ded.x = nx;
+  else state.ded.patrol = null;
+  if(!collides(state.ded.x, ny, DED_SIZE)) state.ded.y = ny;
+  else state.ded.patrol = null;
+
+  // поймал?
+  if(dist < 38){ endGame('Дед схватил тебя в темноте.'); }
+}
+
+// ===== ПРОВЕРКА КЛЮЧЕЙ И ДВЕРЕЙ =====
+function checkPickups(){
+  state.keysArr.forEach((k,i)=>{
+    if(!k.taken){
+      const d = Math.hypot(k.x - state.player.x, k.y - state.player.y);
+      if(d < 30){
+        k.taken = true;
+        state.keys++;
+        document.getElementById('key'+i).style.display='none';
+        document.getElementById('keys').textContent = state.keys;
+        showMsg('🔑 Ключ найден! Всего: '+state.keys+'/3');
+      }
+    }
+  });
+}
+
+function tryOpenDoor(){
+  state.doors.forEach((door,i)=>{
+    const cx = state.player.x+PLAYER_SIZE/2;
+    const cy = state.player.y+PLAYER_SIZE/2;
+    const ddx = cx - (door.x+door.w/2);
+    const ddy = cy - (door.y+door.h/2);
+    if(Math.hypot(ddx,ddy) < 55 && door.locked && !door.open){
+      if(state.keys >= door.keyNeeded){
+        openPuzzle(i);
+      } else {
+        showMsg('🔒 Нужно ключей: '+door.keyNeeded+'. У тебя: '+state.keys);
+      }
+    }
+    // выход
+    if(i===2 && door.open){
+      const dist = Math.hypot(ddx,ddy);
+      if(dist < 50){ winGame(); }
+    }
+  });
+}
+
+// Авто-проверка двери при подходе
+setInterval(()=>{
+  if(!state.running || state.over) return;
+  state.doors.forEach((door,i)=>{
+    const cx = state.player.x+PLAYER_SIZE/2;
+    const cy = state.player.y+PLAYER_SIZE/2;
+    const ddx = cx - (door.x+door.w/2);
+    const ddy = cy - (door.y+door.h/2);
+    if(Math.hypot(ddx,ddy) < 55 && door.locked && !door.open){
+      if(state.keys >= door.keyNeeded){
+        // автоматически показываем подсказку
+        // но не открываем — нужно нажать "ОТКРЫТЬ"
+      }
+    }
+  });
+}, 300);
+
+// ===== ГОЛОВОЛОМКИ =====
+let currentDoor = -1;
+function openPuzzle(i){
+  currentDoor = i;
+  const door = state.doors[i];
+  document.getElementById('puzzleTitle').textContent = 'ЗАМОК №'+(i+1);
+  document.getElementById('puzzleText').textContent = door.hint;
+  document.getElementById('puzzleInput').value='';
+  document.getElementById('puzzleScreen').classList.remove('hidden');
+  state.running = false; // пауза
+}
+
+document.getElementById('puzzleBtn').onclick = ()=>{
+  const door = state.doors[currentDoor];
+  const val = document.getElementById('puzzleInput').value.trim();
+  if(val === door.code){
+    door.locked = false; door.open = true;
+    const el = document.getElementById('door'+currentDoor);
+    el.className = 'door open';
+    el.textContent = currentDoor===2 ? '🚪 ВЫХОД' : '✅';
+    document.getElementById('puzzleScreen').classList.add('hidden');
+    state.running = true;
+    showMsg('✅ Дверь открыта!');
+    // Дед слышит щелчок и идёт
+    state.ded.stunTimer = 0;
+    state.ded.patrol = { x: state.player.x, y: state.player.y };
+  } else {
+    document.getElementById('puzzleInput').style.borderColor='#f00';
+    setTimeout(()=>document.getElementById('puzzleInput').style.borderColor='#a33',400);
+    // Ошибка = шум = дед слышит
+    state.ded.patrol = { x: state.player.x, y: state.player.y };
+  }
+};
+
+document.getElementById('puzzleClose').onclick = ()=>{
+  document.getElementById('puzzleScreen').classList.add('hidden');
+  state.running = true;
+};
+
+// ===== СООБЩЕНИЯ =====
+let msgTimer;
+function showMsg(text){
+  msgEl.textContent = text;
+  msgEl.style.display='block';
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(()=>msgEl.style.display='none', 2200);
+}
+
+// ===== ИГРОВОЙ ЦИКЛ =====
+let lastTime = 0;
+function loop(t){
+  const dt = Math.min((t-lastTime)/1000, 0.05);
+  lastTime = t;
+
+  if(state.running && !state.over && !state.won){
+    movePlayer(dt);
+    if(state.ded.active) moveDed(dt);
+    checkPickups();
+    render();
+    updateHUD();
+  }
+  requestAnimationFrame(loop);
+}
+
+function render(){
+  playerEl.style.left = state.player.x+'px';
+  playerEl.style.top = state.player.y+'px';
+  if(state.ded.active){
+    dedEl.classList.remove('hidden');
+    dedEl.style.left = state.ded.x+'px';
+    dedEl.style.top = state.ded.y+'px';
+  }
+}
+
+function updateHUD(){
+  const d = Math.hypot(state.player.x-state.ded.x, state.player.y-state.ded.y);
+  const el = document.getElementById('dist');
+  if(!state.ded.active){ el.textContent='спит...'; return; }
+  if(d < 120) el.textContent='РЯДОМ!';
+  else if(d < 250) el.textContent='близко';
+  else el.textContent='далеко';
+  el.style.color = d<120 ? '#f33' : d<250 ? '#fa0' : '#8f8';
+}
+
+// ===== СТАРТ/КОНЕЦ =====
+function startGame(){
+  // сброс
+  document.querySelectorAll('.wall,.door,.key').forEach(e=>e.remove());
+  state.keys=0; state.over=false; state.won=false;
+  state.player={x:60,y:60};
+  state.ded={x:W-100,y:H-150, active:false, stunTimer:0, patrol:null};
+  state.joyVec={x:0,y:0};
+  state.dedSpeed=DED_SPEED;
+  state.noise=0;
+  document.getElementById('keys').textContent='0';
+  document.getElementById('dist').textContent='спит...';
+  document.getElementById('deadScreen').classList.add('hidden');
+  document.getElementById('winScreen').classList.add('hidden');
+  document.getElementById('startScreen').classList.add('hidden');
+  playerEl.style.left='60px'; playerEl.style.top='60px';
+  dedEl.classList.add('hidden');
+
+  buildLevel();
+  renderStatic();
+  state.running = true;
+
+  // Дед просыпается через 6 секунд
+  setTimeout(()=>{
+    if(state.over||state.won) return;
+    state.ded.active = true;
+    showMsg('👴 Ты слышишь шаги... ОН ПРОСНУЛСЯ');
+  }, 6000);
+}
+
+function endGame(reason){
+  if(state.over) return;
+  state.over = true; state.running = false;
+  flash();
+  document.getElementById('deadReason').textContent = reason;
+  document.getElementById('deadScreen').classList.remove('hidden');
+  document.getElementById('deadScreen').style.background='rgba(60,0,0,.95)';
+}
+
+function winGame(){
+  if(state.won) return;
+  state.won = true; state.running = false;
+  document.getElementById('winScreen').classList.remove('hidden');
+}
+
+function flash(){
+  const f = document.getElementById('flash');
+  f.style.transition='none'; f.style.opacity='0.8';
+  setTimeout(()=>{ f.style.transition='opacity .6s'; f.style.opacity='0'; },30);
+}
+
+document.getElementById('startBtn').onclick = startGame;
+document.getElementById('retryBtn').onclick = startGame;
+document.getElementById('winBtn').onclick = startGame;
+
+// ===== ЗАПУСК =====
+buildLevel();
+renderStatic();
+requestAnimationFrame(loop);
+
+// Ресайз
+window.addEventListener('resize',()=>location.reload());
+</script>
+</body>
+</html>
